@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ダッシュボード</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ダッシュボード">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: transparent; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .glass-card { background: rgba(255,255,255,0.28); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.4); }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 4px; }
+    .tab-btn.active { background: rgba(255,255,255,0.9); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    button:focus-visible, input:focus-visible { outline: 2px solid #7fb4ff; outline-offset: 1px; }
+    @keyframes glow { 0% { box-shadow: 0 0 0 0 rgba(127,180,255,0.75); } 100% { box-shadow: 0 0 0 16px rgba(127,180,255,0); } }
+    .glass-card.glow { animation: glow 1.2s ease-out 3; }
+    @media (prefers-reduced-motion: reduce) { .glass-card.glow { animation: none; border-color: #7fb4ff; } }
+    .hdot { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid rgba(128,128,128,0.55); box-sizing: border-box; }
+    .hdot.y { background: #7fb4ff; border-color: #7fb4ff; }
+    .hdot.t { outline: 2px solid #7fb4ff; outline-offset: 2px; }
+    .badge-on { background: rgba(127,180,255,0.28); color: #245a9e; }
+    .badge-off { background: rgba(128,128,128,0.18); }
+    .dark .badge-on { color: #b9d6ff; }
+    #time.night { color: #f3f4ff; text-shadow: 0 1px 6px rgba(0,0,0,0.45); }
+    /* ダークテーマ（Notionのテーマには追従できないので手動切替つき） */
+    .dark body { color: #e8eaf3; }
+    .dark .glass-card { background: rgba(24,28,48,0.55); border-color: rgba(255,255,255,0.14); }
+    .dark [class*="bg-white/"] { background-color: rgba(255,255,255,0.09); }
+    .dark [class*="hover:bg-white"]:hover { background-color: rgba(255,255,255,0.2); }
+    .dark [class*="bg-black"] { background-color: rgba(255,255,255,0.07); }
+    .dark .tab-btn.active { background: rgba(255,255,255,0.22); box-shadow: none; }
+    .dark [class*="border-black"] { border-color: rgba(255,255,255,0.14); }
+    .dark [class*="text-gray"] { color: #c3c8dc; }
+    .dark .text-gray-800 { color: #f1f2f8; }
+    .dark input, .dark textarea, .dark select { color: #e8eaf3; color-scheme: dark; }
+    .dark ::placeholder { color: #8f94ad; }
+  </style>
+</head>
+<body class="flex flex-col items-center justify-center p-3 text-[#37352f]">
+
+  <div class="glass-card relative rounded-[20px] p-4 w-[290px] shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] flex flex-col gap-3">
+    <canvas id="fxCanvas" class="absolute inset-0 z-30 pointer-events-none"></canvas>
+
+    <div class="relative text-center w-full pb-2 border-b border-black/10">
+      <button data-act="theme" id="themeBtn" role="switch" aria-checked="false" aria-label="ダークモード" class="absolute right-0 top-0 flex items-center gap-1 text-[10px] text-gray-600"><span>ダーク</span><span id="themeTrack" class="relative inline-block w-7 h-4 rounded-full transition-colors" style="background-color:rgba(0,0,0,0.2)"><span id="themeKnob" class="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform"></span></span></button>
+      <div id="dateDisplay" class="text-[11px] text-gray-600 font-medium tracking-wide">----/--/-- (--)</div>
+      <div id="timeDisplay" class="text-2xl font-bold text-gray-800 tracking-tight mt-0.5">00:00:00</div>
+    </div>
+
+    <div class="flex bg-black/5 p-1 rounded-xl gap-1 text-[11px]">
+      <button data-act="tab" data-a="timer" id="tab-timer" class="tab-btn flex-1 py-1 rounded-lg text-gray-700 transition-all active">タイマー</button>
+      <button data-act="tab" data-a="todo" id="tab-todo" class="tab-btn flex-1 py-1 rounded-lg text-gray-700 transition-all">やること</button>
+    </div>
+
+    <div class="w-full min-h-[220px] flex flex-col justify-center">
+
+      <!-- タイマー -->
+      <div id="content-timer" class="tab-content flex flex-col items-center">
+        <div id="pinLine" class="hidden w-full mb-2 flex flex-col gap-0.5 text-[10px] text-gray-600"></div>
+        <div id="modeIndicator" class="text-[11px] font-semibold mb-2 text-gray-600 bg-white/60 px-2.5 py-0.5 rounded-full">集中モード (Work)</div>
+        <div class="relative w-[130px] h-[130px] flex items-center justify-center">
+          <canvas id="waveCanvas" width="120" height="120" class="absolute rounded-full top-[5px] left-[5px]"></canvas>
+          <svg viewBox="0 0 140 140" class="w-full h-full -rotate-90 relative z-10 pointer-events-none">
+            <circle cx="70" cy="70" r="60" fill="none" stroke-width="5" stroke="rgba(230,230,230,0.5)" />
+            <circle id="progress" cx="70" cy="70" r="60" fill="none" stroke-width="5" stroke="#a2d2ff" stroke-linecap="round" stroke-dasharray="377" stroke-dashoffset="377" />
+          </svg>
+          <div id="time" class="absolute text-2xl font-bold z-20 text-gray-800">00:00</div>
+        </div>
+        <div class="flex gap-1.5 mt-3 flex-wrap justify-center">
+          <button data-act="primary" id="startBtn" class="px-2.5 py-1 text-[11px] font-medium border border-black/15 rounded-md bg-white/75 hover:bg-white/95 shadow-sm">スタート</button>
+          <button data-act="break" data-a="5" class="px-2 py-1 text-[11px] font-medium border border-black/15 rounded-md bg-white/75 hover:bg-white/95 shadow-sm">5分休憩</button>
+          <button data-act="break" data-a="15" class="px-2 py-1 text-[11px] font-medium border border-black/15 rounded-md bg-white/75 hover:bg-white/95 shadow-sm">15分休憩</button>
+          <button data-act="reset" class="px-2 py-1 text-[11px] font-medium border border-black/15 rounded-md bg-white/75 hover:bg-white/95 shadow-sm">リセット</button>
+          <button data-act="back" id="backBtn" class="hidden px-2 py-1 text-[11px] font-medium border border-black/15 rounded-md bg-white/75 hover:bg-white/95 shadow-sm">集中に戻る</button>
+        </div>
+        <div class="flex justify-between items-center w-full mt-2">
+          <button data-act="rec" id="todaySum" class="text-[10px] text-gray-600 border-b border-dashed border-gray-500 pb-0.5">記録を見る</button>
+          <span class="flex gap-2"><button data-act="notifyToggle" id="notifyBtn" class="text-[10px] text-gray-600 border-b border-dashed border-gray-500 pb-0.5">通知: OFF</button><button data-act="sound" id="soundBtn" class="text-[10px] text-gray-600 border-b border-dashed border-gray-500 pb-0.5">効果音: ON</button></span>
+        </div>
+        <div class="w-full mt-2 pt-2 border-t border-black/10">
+          <button data-act="fastToggle" id="fastBar" class="block w-full text-left" aria-label="断食の設定を開閉">
+            <span class="flex justify-between text-[10px] text-gray-700"><span class="font-semibold">断食</span><span id="fastBarText">未開始</span></span>
+            <span class="block h-1.5 rounded-full bg-black/10 mt-1 overflow-hidden"><span id="fastBarFill" class="block h-full rounded-full" style="width:0%;background:#6bbf8a"></span></span>
+          </button>
+          <div id="fastPanel" class="hidden flex flex-col items-center gap-1.5 mt-2">
+            <div id="fastInfo" class="text-[10px] text-gray-600 text-center"></div>
+            <div class="flex gap-1.5 items-center text-[11px] text-gray-700"><label for="fastGoal">目標</label><select id="fastGoal" class="text-[11px] bg-white/70 border border-black/15 rounded px-1 py-0.5 outline-none"><option value="12">12</option><option value="14">14</option><option value="16">16</option><option value="18">18</option><option value="20">20</option><option value="24">24</option></select><span>時間</span></div>
+            <div class="flex flex-col items-center gap-0.5"><label for="fastStartAt" class="text-[10px] text-gray-600">食事を終えた時刻（空欄なら今）</label><input type="datetime-local" id="fastStartAt" class="text-[11px] bg-white/70 border border-black/15 rounded px-1 py-0.5 outline-none"></div>
+            <div class="flex gap-1.5"><button data-act="fastStart" id="fastBtn" class="px-2.5 py-1 text-[11px] font-medium border border-black/15 rounded-md bg-white/75 hover:bg-white/95 shadow-sm">断食を始める</button><button data-act="fastSet" id="fastSetBtn" class="hidden px-2 py-1 text-[11px] font-medium border border-black/15 rounded-md bg-white/75 hover:bg-white/95 shadow-sm">開始時刻を変更</button></div>
+            <div id="fastHistory" class="w-full text-[10px] text-gray-600 flex flex-col gap-0.5"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- やること（習慣・目標・メモ：1つ開くと他が閉じる） -->
+      <div id="content-todo" class="tab-content hidden flex flex-col gap-1.5 h-[260px] overflow-y-auto pr-0.5">
+        <section>
+          <button data-act="acc" data-a="habits" id="acc-habits" aria-expanded="false" class="w-full flex justify-between items-center py-1.5 px-2 rounded-lg border border-black/5 text-[11px]"><span class="font-semibold text-gray-700">習慣</span><span id="accSum-habits" class="text-[10px] text-gray-600"></span></button>
+          <div id="accBody-habits" class="hidden flex flex-col gap-1.5 pt-1.5">
+            <div class="flex gap-1"><input type="text" id="habitInput" data-enter="addHabit" placeholder="新しい習慣を追加..." class="flex-1 min-w-0 text-[11px] bg-white/60 border border-black/12 rounded-lg px-2 py-1 outline-none"><button data-act="addHabit" class="text-[11px] px-2.5 py-1 border border-black/15 rounded-lg bg-white/75 hover:bg-white/95 font-medium">追加</button></div>
+            <div id="habitList" class="flex flex-col gap-1.5"></div>
+            <div class="hidden flex justify-end pt-1"><button data-act="hshow" id="hshowBtn" class="text-[10px] text-gray-600 border-b border-dashed border-gray-500">非表示の習慣 (0)</button></div>
+          </div>
+        </section>
+        <section>
+          <button data-act="acc" data-a="goals" id="acc-goals" aria-expanded="false" class="w-full flex justify-between items-center py-1.5 px-2 rounded-lg border border-black/5 text-[11px]"><span class="font-semibold text-gray-700">目標</span><span id="accSum-goals" class="text-[10px] text-gray-600"></span></button>
+          <div id="accBody-goals" class="hidden flex flex-col gap-1.5 pt-1.5">
+            <div class="flex justify-end gap-3"><button data-act="clearExpired" class="text-[10px] text-gray-600 hover:underline">期限切れを削除</button><button data-act="hform" class="text-[10px] text-blue-600 hover:underline">＋ 追加フォーム</button></div>
+            <div id="countdownForm" class="hidden flex flex-col gap-1.5 bg-white/40 p-2 rounded-lg border border-black/5">
+              <input type="text" id="cdName" placeholder="目標の名前" class="text-[11px] bg-white/70 border border-black/15 rounded px-2 py-1 outline-none">
+              <div class="flex gap-1"><input type="date" id="cdDate" title="期限、または開始日" class="text-[11px] bg-white/70 border border-black/15 rounded px-1 py-1 outline-none flex-1"><select id="cdType" class="text-[11px] bg-white/70 border border-black/15 rounded px-1 py-1 outline-none"><option value="left">期限まで</option><option value="passed">開始から</option></select></div>
+              <button data-act="cdadd" class="text-[10px] bg-white/80 border border-black/15 rounded py-1 font-medium shadow-sm">登録</button>
+            </div>
+            <div id="countdownList" class="flex flex-col gap-1.5"></div>
+          </div>
+        </section>
+        <section>
+          <button data-act="acc" data-a="memo" id="acc-memo" aria-expanded="false" class="w-full flex justify-between items-center py-1.5 px-2 rounded-lg border border-black/5 text-[11px]"><span class="font-semibold text-gray-700">メモ</span><span id="accSum-memo" class="text-[10px] text-gray-600"></span></button>
+          <div id="accBody-memo" class="hidden flex flex-col gap-1.5 pt-1.5">
+            <div class="flex gap-1"><input type="text" id="itemInput" data-enter="addParent" placeholder="親予定を追加..." class="flex-1 min-w-0 text-[11px] bg-white/60 border border-black/12 rounded-lg px-2 py-1 outline-none"><button data-act="addParent" class="text-[11px] px-2.5 py-1 border border-black/15 rounded-lg bg-white/75 hover:bg-white/95 font-medium">追加</button></div>
+            <div id="memoList" class="flex flex-col gap-1"></div>
+            <div class="flex justify-between pt-2 border-t border-black/5 gap-1"><button data-act="copylog" class="text-[10px] px-2 py-1 border border-black/15 rounded bg-white/75 hover:bg-white">ログコピー</button><button data-act="clearDone" class="text-[10px] px-2 py-1 border border-black/15 rounded bg-white/75 hover:bg-white">完了削除</button><button data-act="clearAll" class="text-[10px] px-2 py-1 border border-black/15 rounded bg-white/75 hover:bg-white">すべて削除</button></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- 記録（タイマーから開く） -->
+      <div id="content-rec" class="tab-content hidden flex flex-col gap-3 h-[220px] overflow-y-auto pr-0.5">
+        <button data-act="recback" class="self-start text-[10px] text-gray-600 border-b border-dashed border-gray-500">&lt; タイマーに戻る</button>
+        <section>
+          <div class="flex justify-between items-baseline mb-1"><span class="text-[11px] font-semibold text-gray-700">週間（分）</span><span id="weekSum" class="text-[10px] text-gray-600"></span></div>
+          <div id="weekChart" class="flex items-end gap-1"></div>
+        </section>
+        <section>
+          <div class="flex justify-between items-center mb-1">
+            <span id="monthLabel" class="text-[11px] font-semibold text-gray-700"></span>
+            <span class="flex gap-3 text-[11px] text-gray-600"><button data-act="mprev" aria-label="前の月">&lt;</button><button data-act="mnext" aria-label="次の月">&gt;</button></span>
+          </div>
+          <div id="monthGrid" class="grid grid-cols-7 gap-[3px]"></div>
+        </section>
+        <section>
+          <div class="flex justify-between items-baseline mb-1"><span class="text-[11px] font-semibold text-gray-700">庭</span><span id="gardenSum" class="text-[10px] text-gray-600"></span></div>
+          <div id="garden" class="w-full rounded-lg overflow-hidden"></div>
+          <div id="gardenNext" class="text-[10px] text-gray-600 mt-1"></div>
+        </section>
+        <section class="border-t border-black/10 pt-2">
+          <div class="flex justify-between items-center mb-1"><span class="text-[11px] font-semibold text-gray-700">データ</span><button data-act="bkp" class="text-[10px] text-gray-600 border-b border-dashed border-gray-500">バックアップ</button></div>
+        <div id="bkPanel" class="hidden mt-2 flex flex-col gap-1">
+          <textarea id="bkText" rows="3" class="w-full text-[10px] bg-white/70 border border-black/15 rounded p-1 outline-none" placeholder="書き出し後にここへJSONが出ます。復元は貼り付けて「復元」"></textarea>
+          <div class="flex gap-1">
+            <button data-act="bkout" class="flex-1 text-[10px] py-1 border border-black/15 rounded bg-white/75 hover:bg-white">書き出し</button>
+            <button data-act="bkin" class="flex-1 text-[10px] py-1 border border-black/15 rounded bg-white/75 hover:bg-white">復元</button>
+          </div>
+        </div>
+          <button data-act="resetLog" class="mt-4 text-[10px] text-red-600 border-b border-dashed border-red-400">記録をリセット</button>
+        </section>
+      </div>
+
+
+    </div>
+
+    <div id="undoBar" class="hidden flex items-center justify-between text-[10px] bg-black/10 rounded-lg px-2 py-1"><span id="undoMsg"></span><button data-act="undo" class="font-semibold text-blue-600 underline">元に戻す</button></div>
+    <div id="saveStatus" class="text-[9px] text-gray-500 text-center border-t border-black/5 pt-1">読み込み中...</div>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const dstr = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const todayStr = () => dstr(new Date());
+const DAY = 86400000, W = 25 * 60 * 1000;
+
+// ===== 保存（保存できない環境でも画面が壊れないようにする） =====
+const mem = {};
+let storageOK = true, lastSaved = '', toastTimer = null;
+function load(k, def) {
+  try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; }
+  catch (e) { storageOK = false; return mem[k] !== undefined ? mem[k] : def; }
+}
+function save(k, v) {
+  mem[k] = v;
+  try { localStorage.setItem(k, JSON.stringify(v)); storageOK = true; const n = new Date(); lastSaved = `${pad(n.getHours())}:${pad(n.getMinutes())}`; }
+  catch (e) { storageOK = false; }
+  renderStatus();
+}
+function renderStatus() {
+  $('saveStatus').textContent = storageOK ? `自動保存済み${lastSaved ? ' ' + lastSaved : ''}` : '注意: この環境では保存できません（バックアップを推奨）';
+}
+function toast(msg) {
+  $('saveStatus').textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(renderStatus, 2500);
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; }
+  catch (e) {
+    try { const a = document.createElement('textarea'); a.value = t; a.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(a); a.select(); const ok = document.execCommand('copy'); a.remove(); return ok; }
+    catch (e2) { return false; }
+  }
+}
+
+const CD_KEY = 'notion_dashboard_countdowns_v1', HABIT_KEY = 'notion_dashboard_habit_v1', MEMO_KEY = 'notion_dashboard_memo_v1';
+const LOG_KEY = 'notion_dashboard_log_v1', TIMER_KEY = 'notion_dashboard_timer_v1';
+let countdowns = load(CD_KEY, [{ name: '2026年末まで', date: '2026-12-31', type: 'left' }]);
+let habits = load(HABIT_KEY, []);
+let items = load(MEMO_KEY, []);
+let log = load(LOG_KEY, {});           // { 'YYYY-MM-DD': { sec, pomo } }
+const UI_KEY = 'notion_dashboard_ui_v1';
+const ui = { edit: null, acc: (load(UI_KEY, { acc: 'habits' }) || {}).acc || null, fastOpen: false };
+
+// ===== 音（ボタン操作の時点で準備しておく） =====
+let AC = null, soundEnabled = true;
+function ensureAudio() {
+  try {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+  } catch (e) {}
+}
+function playChime() {
+  if (!soundEnabled || !AC) return;
+  try {
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+      const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime + i * 0.08;
+      o.frequency.setValueAtTime(f, t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.15, t + 0.1);
+      g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime + 2.8);
+      o.connect(g); g.connect(AC.destination);
+      o.start(t); o.stop(AC.currentTime + 3.0);
+    });
+  } catch (e) {}
+}
+
+// ===== タイマー（開始時刻との差分で計算） =====
+let S = load(TIMER_KEY, { mode: 'work', running: false, startedAt: 0, accMs: 0, breakMs: 300000, loggedMs: 0, milestone: 0 });
+const CIRC = 2 * Math.PI * 60;
+const saveTimer = () => save(TIMER_KEY, S);
+const elapsed = () => S.accMs + (S.running ? Date.now() - S.startedAt : 0);
+
+function progress() {
+  const el = elapsed();
+  return S.mode === 'work' ? (el % W) / W : Math.max(0, (S.breakMs - el) / S.breakMs);
+}
+let lastLogSave = 0;
+function commitLog(force) {
+  if (S.mode !== 'work') return;
+  const el = elapsed(), d = el - S.loggedMs;
+  if (d <= 0) return;
+  const k = todayStr();
+  log[k] = log[k] || { sec: 0, pomo: 0 };
+  log[k].sec += d / 1000;
+  S.loggedMs = el;
+  if (force || Date.now() - lastLogSave > 5000) { lastLogSave = Date.now(); save(LOG_KEY, log); saveTimer(); }
+}
+function tick() {
+  const el = elapsed();
+  if (S.running) {
+    if (S.mode === 'work') {
+      const m = Math.floor(el / W);
+      if (m > S.milestone) {
+        const k = todayStr();
+        log[k] = log[k] || { sec: 0, pomo: 0 };
+        log[k].pomo += m - S.milestone;
+        S.milestone = m;
+        commitLog(true);
+        playChime(); shootStar(); notify('25分達成');
+      } else commitLog(false);
+    } else if (el >= S.breakMs) {
+      S.running = false; S.accMs = S.breakMs;
+      saveTimer(); playChime(); notify('休憩終了。集中に戻れます');
+    }
+  }
+  if (!$('content-rec').classList.contains('hidden') && Date.now() - lastStats > 3000) { lastStats = Date.now(); renderStats(); }
+  fastTick(); renderFast();
+  refresh();
+}
+function refresh() {
+  const el = elapsed();
+  const sec = S.mode === 'work' ? Math.floor(el / 1000) : Math.ceil(Math.max(0, S.breakMs - el) / 1000);
+  $('time').textContent = `${pad(Math.floor(sec / 60))}:${pad(sec % 60)}`;
+  $('progress').style.strokeDashoffset = CIRC - progress() * CIRC;
+  $('progress').style.stroke = S.mode === 'work' ? '#a2d2ff' : '#b9b4ff';
+  $('time').classList.toggle('night', S.mode === 'break');
+  const t = log[todayStr()] || { sec: 0, pomo: 0 };
+  $('todaySum').textContent = `記録: 今日 ${Math.floor(t.sec / 60)}分 / ${t.pomo}回`;
+  $('modeIndicator').textContent = S.mode === 'work' ? '集中モード (Work)' : `休憩モード (${S.breakMs / 60000}分)`;
+  const done = S.mode === 'break' && el >= S.breakMs;
+  $('startBtn').textContent = done ? '休憩終了' : (S.running ? '一時停止' : (el > 0 ? '再開' : 'スタート'));
+  $('startBtn').disabled = done;
+  $('backBtn').classList.toggle('hidden', S.mode !== 'break');
+}
+function primary() {
+  ensureAudio();
+  if (S.running) { S.accMs = elapsed(); S.running = false; commitLog(true); }
+  else { S.startedAt = Date.now(); S.running = true; }
+  saveTimer(); refresh();
+}
+function startBreak(m) {
+  ensureAudio(); commitLog(true);
+  S = { mode: 'break', running: true, startedAt: Date.now(), accMs: 0, breakMs: m * 60000, loggedMs: 0, milestone: 0 };
+  saveTimer(); refresh();
+}
+function backToWork() {
+  ensureAudio();
+  S = { mode: 'work', running: true, startedAt: Date.now(), accMs: 0, breakMs: S.breakMs, loggedMs: 0, milestone: 0 };
+  saveTimer(); refresh();
+}
+function resetTimer() {
+  commitLog(true);
+  S.running = false; S.accMs = 0; S.startedAt = 0; S.loggedMs = 0; S.milestone = 0;
+  saveTimer(); refresh();
+}
+
+// ===== テーマ（自動 / ライト / ダーク） =====
+const THEME_KEY = 'notion_dashboard_theme_v1', mq = matchMedia('(prefers-color-scheme: dark)');
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let themePref = load(THEME_KEY, 'auto'), isDark = false;
+function applyTheme() {
+  isDark = themePref === 'dark' || (themePref === 'auto' && mq.matches);
+  document.documentElement.classList.toggle('dark', isDark);
+  $('themeBtn').setAttribute('aria-checked', isDark);
+  $('themeTrack').style.backgroundColor = isDark ? '#7fb4ff' : 'rgba(0,0,0,0.2)';
+  $('themeKnob').style.transform = isDark ? 'translateX(12px)' : '';
+  const standalone = window.self === window.top;   // Notionの埋め込みでは透明のまま、単独表示では背景を付ける
+  document.body.style.background = standalone ? (isDark ? '#12152b' : '#eef3f8') : 'transparent';
+  document.body.style.minHeight = standalone ? '100vh' : '';
+  document.body.style.zoom = standalone && window.innerWidth >= 700 ? 1.3 : '';
+  if ($('weekChart')) renderStats();
+}
+if (mq.addEventListener) mq.addEventListener('change', applyTheme);
+
+// ===== 円の中の情景：集中=植物が育つ / 休憩=夜空 =====
+const canvas = $('waveCanvas'), ctx = canvas.getContext('2d');
+let waveOffset = 0;
+const stars = Array.from({ length: 26 }, () => ({ x: Math.random() * 120, y: Math.random() * 100, r: Math.random() * 1.1 + 0.4, p: Math.random() * 6.28 }));
+function drawPlant(p, t) {
+  const sway = RM ? 0 : Math.sin(t) * 2.5, g = 1 - Math.pow(1 - p, 2);
+  ctx.fillStyle = isDark ? 'rgba(130,104,86,0.6)' : 'rgba(166,132,104,0.5)';
+  ctx.beginPath(); ctx.ellipse(60, 108, 34, 11, 0, 0, 6.283); ctx.fill();
+  const h = 6 + 66 * g, tx = 60 + sway * g, ty = 104 - h;
+  ctx.strokeStyle = '#6bbf8a'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(60, 104); ctx.quadraticCurveTo(60 + sway * 0.2, 104 - h / 2, tx, ty); ctx.stroke();
+  [[0.08, 0.3, -1], [0.25, 0.5, 1], [0.42, 0.7, -1], [0.58, 0.85, 1]].forEach(([th, f, d]) => {
+    const k = Math.min(1, Math.max(0, (p - th) / 0.15));
+    if (!k) return;
+    ctx.save();
+    ctx.translate(60 + sway * g * f * f + d * 2, 104 - h * f);
+    ctx.rotate(-d * 0.5 + sway * 0.03);
+    ctx.fillStyle = '#8fd4a4';
+    ctx.beginPath(); ctx.ellipse(d * 8 * k, 0, 8 * k, 3.5 * k, 0, 0, 6.283); ctx.fill();
+    ctx.restore();
+  });
+  if (p > 0.65 && p <= 0.8) { ctx.fillStyle = '#6bbf8a'; ctx.beginPath(); ctx.arc(tx, ty - 2, 2.5, 0, 6.283); ctx.fill(); }
+  if (p > 0.8) {
+    const k = (p - 0.8) / 0.2;
+    ctx.fillStyle = '#ffb7c5';
+    for (let i = 0; i < 6; i++) {
+      ctx.save(); ctx.translate(tx, ty); ctx.rotate(i * 1.047);
+      ctx.beginPath(); ctx.ellipse(6 * k, 0, 4.5 * k, 2.4 * k, 0, 0, 6.283); ctx.fill(); ctx.restore();
+    }
+    ctx.fillStyle = '#ffe08a'; ctx.beginPath(); ctx.arc(tx, ty, 2.6 * k, 0, 6.283); ctx.fill();
+  }
+}
+function drawNight(t) {
+  const gr = ctx.createLinearGradient(0, 0, 0, 120);
+  gr.addColorStop(0, '#141a45'); gr.addColorStop(1, '#3b3f86');
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, 120, 120);
+  stars.forEach(s => {
+    ctx.fillStyle = `rgba(255,255,240,${RM ? 0.8 : 0.45 + 0.45 * Math.sin(t * 1.5 + s.p)})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 6.283); ctx.fill();
+  });
+  ctx.fillStyle = '#ffeeb8'; ctx.beginPath(); ctx.arc(88, 28, 9, 0, 6.283); ctx.fill();
+  ctx.fillStyle = 'rgb(28,34,83)'; ctx.beginPath(); ctx.arc(92, 25, 8, 0, 6.283); ctx.fill();
+}
+function drawWave() {
+  ctx.clearRect(0, 0, 120, 120);
+  ctx.save(); ctx.beginPath(); ctx.arc(60, 60, 55, 0, 6.283); ctx.clip();
+  waveOffset += 0.03;
+  if (S.mode === 'work') drawPlant(progress(), waveOffset); else drawNight(waveOffset);
+  ctx.restore();
+  requestAnimationFrame(drawWave);
+}
+
+// ===== 流れ星（25分達成の瞬間） =====
+const fx = $('fxCanvas'), fctx = fx.getContext('2d');
+let fxOn = false, pendingStar = false;
+function shootStar() {
+  if (RM || fxOn) return;
+  if (document.hidden) { pendingStar = true; return; }
+  const card = fx.parentElement; fx.width = card.clientWidth; fx.height = card.clientHeight;
+  const cw = fx.width, ch = fx.height, sx = cw * 0.95, sy = ch * 0.1, dx = -cw * 0.85, dy = ch * 0.55, len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
+  const t0 = performance.now(), dur = 1500;
+  fxOn = true;
+  (function frame(now) {
+    const k = (now - t0) / dur;
+    fctx.clearRect(0, 0, cw, ch);
+    if (k >= 1) { fxOn = false; return; }
+    const hx = sx + dx * k, hy = sy + dy * k, tx = hx - ux * 110, ty = hy - uy * 110, a = Math.sin(k * Math.PI);
+    const gr = fctx.createLinearGradient(hx, hy, tx, ty);
+    gr.addColorStop(0, `rgba(255,250,214,${a})`); gr.addColorStop(1, 'rgba(255,250,214,0)');
+    fctx.strokeStyle = gr; fctx.lineWidth = 2.5; fctx.lineCap = 'round';
+    fctx.beginPath(); fctx.moveTo(hx, hy); fctx.lineTo(tx, ty); fctx.stroke();
+    fctx.shadowColor = '#fff7c2'; fctx.shadowBlur = 12; fctx.fillStyle = `rgba(255,255,255,${a})`;
+    fctx.beginPath(); fctx.arc(hx, hy, 2.6, 0, 6.283); fctx.fill(); fctx.shadowBlur = 0;
+    requestAnimationFrame(frame);
+  })(t0);
+}
+$('modeIndicator').addEventListener('dblclick', shootStar);   // 演出の確認用
+
+// ===== 達成の知らせ（通知が使えない環境では画面内の演出とタブ名で代替） =====
+const NOTIFY_KEY = 'notion_dashboard_notify_v1';
+let notifyOn = load(NOTIFY_KEY, false), baseTitle = document.title, titleTimer = null, glowTimer = null;
+try { if (notifyOn && (typeof Notification === 'undefined' || Notification.permission !== 'granted')) notifyOn = false; } catch (e) { notifyOn = false; }
+const updateNotifyBtn = () => { $('notifyBtn').textContent = `通知: ${notifyOn ? 'ON' : 'OFF'}`; };
+function notify(msg) {
+  const card = document.querySelector('.glass-card');
+  card.classList.remove('glow'); void card.offsetWidth; card.classList.add('glow');
+  clearTimeout(glowTimer); glowTimer = setTimeout(() => card.classList.remove('glow'), 4000);
+  if (!document.hidden) return;
+  if (notifyOn) { try { new Notification(msg); } catch (e) {} }
+  clearInterval(titleTimer);
+  let f = false;
+  titleTimer = setInterval(() => { document.title = (f = !f) ? msg : baseTitle; }, 1000);
+}
+async function toggleNotify() {
+  if (notifyOn) { notifyOn = false; save(NOTIFY_KEY, false); updateNotifyBtn(); return; }
+  try {
+    if (typeof Notification === 'undefined') throw 0;
+    let perm = Notification.permission;
+    if (perm === 'default') perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw 0;
+    notifyOn = true; save(NOTIFY_KEY, true);
+  } catch (e) { notifyOn = false; toast('この環境では通知を使えません。画面の光とタブ名で知らせます'); }
+  updateNotifyBtn();
+}
+
+// ===== 記録タブ：週間・月間の草・庭 =====
+let monthOff = 0, lastStats = 0;
+const minOf = k => Math.round(((log[k] || {}).sec || 0) / 60);
+const PETAL = ['#ffb7c5', '#ffd98a', '#c3b8ff', '#9fd8ff', '#ffc29f'];
+const SPECIES = [
+  { id: 'flower', name: '花', at: 0 }, { id: 'tulip', name: 'チューリップ', at: 10 }, { id: 'mush', name: 'きのこ', at: 25 },
+  { id: 'tree', name: '小さな木', at: 50 }, { id: 'sun', name: 'ひまわり', at: 100 }
+];
+const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+function plantShape(sp, c) {
+  const st = '#6bbf8a', lf = '#8fd4a4';
+  const leaf = `<ellipse cx="-3.5" cy="-6" rx="3.2" ry="1.4" transform="rotate(-35 -3.5 -6)" fill="${lf}"/>`;
+  if (sp === 'tulip') return `<path d="M0 0V-15" stroke="${st}" stroke-width="1.6" stroke-linecap="round"/>${leaf}<path d="M-4 -15Q-5.5 -25 0 -22Q5.5 -25 4 -15Q0 -12 -4 -15Z" fill="${c}"/>`;
+  if (sp === 'mush') return `<rect x="-2" y="-8" width="4" height="8" rx="1.5" fill="#f1e6d2"/><path d="M-8 -8Q0 -22 8 -8Z" fill="#e8836b"/><circle cx="-2.5" cy="-12" r="1.2" fill="#fff"/><circle cx="2.5" cy="-10.5" r="1" fill="#fff"/>`;
+  if (sp === 'tree') return `<rect x="-1.6" y="-14" width="3.2" height="14" rx="1" fill="#a67c52"/><circle cx="0" cy="-22" r="8" fill="#6bbf8a"/><circle cx="-6" cy="-17" r="6" fill="#7fc79a"/><circle cx="6" cy="-17" r="6" fill="#7fc79a"/>`;
+  let p = '';
+  if (sp === 'sun') {
+    for (let k = 0; k < 8; k++) p += `<ellipse cx="0" cy="-5.2" rx="1.9" ry="3.4" fill="#ffd45e" transform="translate(0 -26) rotate(${k * 45})"/>`;
+    return `<path d="M0 0V-26" stroke="${st}" stroke-width="2" stroke-linecap="round"/><ellipse cx="-4" cy="-10" rx="3.6" ry="1.6" transform="rotate(-30 -4 -10)" fill="${lf}"/>${p}<circle cx="0" cy="-26" r="3.6" fill="#8a5a2b"/>`;
+  }
+  for (let k = 0; k < 5; k++) p += `<circle cx="0" cy="-3.6" r="2.7" fill="${c}" transform="translate(0 -16) rotate(${k * 72})"/>`;
+  return `<path d="M0 0V-14" stroke="${st}" stroke-width="1.6" stroke-linecap="round"/>${leaf}${p}<circle cx="0" cy="-16" r="1.9" fill="#ffe08a"/>`;
+}
+function renderGarden(count) {
+  const life = Object.values(log).reduce((a, v) => a + (v.pomo || 0), 0);
+  const open = SPECIES.filter(x => life >= x.at), next = SPECIES.find(x => life < x.at);
+  const w = 260, h = 112;
+  const sky = isDark ? ['#141a45', '#2c3270'] : ['#dff1ff', '#fff6e0'], gr = isDark ? ['#2f5a45', '#25463a'] : ['#9fd8a8', '#7fc79a'];
+  let g = `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="庭 ${count}本" style="display:block"><defs><linearGradient id="gardenSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${sky[0]}"/><stop offset="1" stop-color="${sky[1]}"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#gardenSky)"/>`;
+  if (isDark) {
+    for (let i = 0; i < 18; i++) g += `<circle cx="${(hash(i + 1) * w).toFixed(1)}" cy="${(hash(i + 50) * 56).toFixed(1)}" r="${(0.6 + hash(i + 9) * 0.7).toFixed(1)}" fill="#fffbe6" opacity="${(0.5 + hash(i + 3) * 0.5).toFixed(2)}"/>`;
+    g += '<circle cx="226" cy="22" r="9" fill="#ffeeb8"/><circle cx="230" cy="19" r="8" fill="#181e4c"/>';
+  } else g += '<circle cx="226" cy="22" r="10" fill="#ffe9a8" opacity="0.9"/><ellipse cx="60" cy="24" rx="18" ry="5" fill="#fff" opacity="0.7"/><ellipse cx="72" cy="21" rx="12" ry="4.5" fill="#fff" opacity="0.7"/>';
+  g += `<path d="M0 82Q60 70 130 80T260 76V${h}H0Z" fill="${gr[0]}"/><path d="M0 96Q80 88 150 96T260 92V${h}H0Z" fill="${gr[1]}"/>`;
+  const pl = [];
+  for (let i = 0; i < Math.min(count, 60); i++) pl.push({ x: 12 + hash(i * 5 + 1) * (w - 24), y: 88 + hash(i * 7 + 2) * 20, s: 0.8 + hash(i * 11 + 3) * 0.35, sp: open[Math.floor(hash(i * 3 + 7) * open.length)].id, c: PETAL[Math.floor(hash(i + 20) * PETAL.length)] });
+  pl.sort((a, b) => a.y - b.y).forEach(p => g += `<g transform="translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) scale(${(p.s * (p.sp === 'tree' ? 0.7 : 1)).toFixed(2)})">${plantShape(p.sp, p.c)}</g>`);
+  if (isDark) for (let i = 0; i < Math.min(8, Math.floor(count / 6)); i++) {
+    const x = (20 + hash(i + 70) * 220).toFixed(1), y = (52 + hash(i + 80) * 40).toFixed(1);
+    g += `<circle cx="${x}" cy="${y}" r="4.5" fill="#fff6a8" opacity="0.18"/><circle cx="${x}" cy="${y}" r="1.7" fill="#fff6a8" opacity="0.9"/>`;
+  }
+  $('garden').innerHTML = g + '</svg>';
+  $('gardenNext').textContent = (count ? '' : '25分達成ごとに1本育ちます。') + (next ? `次に生える植物: ${next.name}（累計 あと${next.at - life}回）` : '植物がすべてそろいました');
+}
+function renderStats() {
+  const days = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - 6 + i); return d; });
+  const mins = days.map(d => minOf(dstr(d))), max = Math.max(30, ...mins);
+  $('weekSum').textContent = `合計 ${mins.reduce((a, b) => a + b, 0)}分`;
+  $('weekChart').innerHTML = days.map((d, i) => `<div class="flex-1 flex flex-col items-center justify-end h-[62px]"><span class="text-[9px] text-gray-600">${mins[i] || ''}</span><div class="w-full rounded-t" style="height:${Math.max(2, Math.round(mins[i] / max * 34))}px;background:${i === 6 ? '#7fb4ff' : '#a2d2ff'};opacity:${mins[i] ? 1 : 0.4}"></div><span class="text-[9px] text-gray-500">${weekDays[d.getDay()]}</span></div>`).join('');
+  const now = new Date(), first = new Date(now.getFullYear(), now.getMonth() + monthOff, 1);
+  const y = first.getFullYear(), m = first.getMonth(), len = new Date(y, m + 1, 0).getDate();
+  $('monthLabel').textContent = `${y}年${m + 1}月`;
+  let g = weekDays.map(w => `<div class="text-[9px] text-center text-gray-500">${w}</div>`).join('') + '<div></div>'.repeat(first.getDay());
+  let pomoTotal = 0, minTotal = 0;
+  for (let d = 1; d <= len; d++) {
+    const k = `${y}-${pad(m + 1)}-${pad(d)}`, mi = minOf(k), po = (log[k] || {}).pomo || 0;
+    pomoTotal += po; minTotal += mi;
+    const lv = mi === 0 ? 0 : mi < 25 ? 1 : mi < 60 ? 2 : mi < 120 ? 3 : 4;
+    const bg = lv ? `rgba(107,191,138,${[0, 0.3, 0.5, 0.75, 1][lv]})` : 'rgba(128,128,128,0.15)';
+    g += `<div class="h-[14px] rounded-sm" title="${m + 1}/${d}: ${mi}分 / ${po}回" style="background:${bg};${k === todayStr() ? 'box-shadow:inset 0 0 0 1.5px #7fb4ff' : ''}"></div>`;
+  }
+  $('monthGrid').innerHTML = g;
+  $('gardenSum').textContent = `${pomoTotal}本 / ${minTotal}分`;
+  renderGarden(pomoTotal);
+}
+
+// ===== 時計・カウントダウン =====
+const weekDays = ['日', '月', '火', '水', '木', '金', '土'];
+function updateClock() {
+  const n = new Date();
+  $('dateDisplay').textContent = `${n.getFullYear()}/${pad(n.getMonth()+1)}/${pad(n.getDate())} (${weekDays[n.getDay()]})`;
+  $('timeDisplay').textContent = `${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`;
+  if (n.getSeconds() === 0) renderPins();
+}
+function cdText(it) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const t = new Date(it.date + 'T00:00:00'), diff = Math.ceil((t - today) / DAY);
+  return it.type === 'left' ? (diff > 0 ? `あと ${diff}日` : diff === 0 ? '今日が当日' : `${Math.abs(diff)}日経過`)
+    : `${Math.max(1, Math.floor((today - t) / DAY) + 1)}日目`;
+}
+const pinSort = arr => arr.map((_, i) => i).sort((a, b) => (arr[b].pinned ? 1 : 0) - (arr[a].pinned ? 1 : 0));
+const pinBtn = (act, i, on) => `<button data-act="${act}" data-a="${i}" class="text-[10px] ${on ? 'text-blue-600 font-medium' : 'text-gray-500'}">${on ? 'ピン済' : 'ピン'}</button>`;
+function renderPins() {
+  const ts = todayStr(), L = [];
+  countdowns.filter(c => c.pinned).forEach(c => L.push(`${esc(c.name)}　${cdText(c)}`));
+  habits.filter(h => h.pinned && !h.hidden).forEach(h => L.push(`${esc(h.title)}　${h.history[ts] ? '今日は完了' : '今日はまだ'}`));
+  const el = $('pinLine');
+  el.classList.toggle('hidden', !L.length);
+  el.innerHTML = L.slice(0, 3).map(t => `<div class="truncate">${t}</div>`).join('') + (L.length > 3 ? `<div>ほか ${L.length - 3}件</div>` : '');
+}
+function renderCountdowns() {
+  const c = $('countdownList');
+  if (!countdowns.length) c.innerHTML = '<div class="text-[10px] text-gray-500 text-center py-4">目標はありません</div>';
+  else c.innerHTML = pinSort(countdowns).map(i => {
+    const it = countdowns[i];
+    return `<div class="flex justify-between items-center ${it.pinned ? 'bg-white/70' : 'bg-white/50'} px-2 py-1.5 rounded border border-black/5 text-[11px]">
+      <span class="truncate flex-1">${esc(it.name)}</span>
+      <div class="flex items-center gap-2"><span class="font-bold whitespace-nowrap">${cdText(it)}</span>${pinBtn('cdpin', i, it.pinned)}
+      <button data-act="cddel" data-a="${i}" class="text-gray-400 hover:text-red-500" aria-label="削除">×</button></div></div>`;
+  }).join('');
+  renderPins(); renderAcc();
+}
+function renderAcc() {
+  const vis = habits.filter(h => !h.hidden), ts = todayStr(), open = items.filter(p => !p.completed).length;
+  const sums = {
+    habits: vis.length ? `${vis.filter(h => h.history[ts]).length}/${vis.length} 完了` : '未登録',
+    goals: countdowns.length ? `${countdowns.length}件` : 'なし',
+    memo: open ? `未完了 ${open}件` : 'なし'
+  };
+  ['habits', 'goals', 'memo'].forEach(k => {
+    const on = ui.acc === k;
+    $('accSum-' + k).textContent = sums[k];
+    $('accBody-' + k).classList.toggle('hidden', !on);
+    $('acc-' + k).classList.toggle('bg-white/70', on);
+    $('acc-' + k).classList.toggle('bg-white/45', !on);
+    $('acc-' + k).setAttribute('aria-expanded', on);
+  });
+}
+
+// ===== 習慣 =====
+function habitInfo(h) {
+  const ts = todayStr(), keys = Object.keys(h.history).sort(), done = !!h.history[ts];
+  const runAt = d0 => { let n = 0; const d = new Date(d0); while (h.history[dstr(d)]) { n++; d.setDate(d.getDate() - 1); } return n; };
+  const today = new Date(), yest = new Date(); yest.setDate(yest.getDate() - 1);
+  let best = 0, run = 0, prev = null;
+  keys.forEach(k => { const t = new Date(k + 'T00:00:00').getTime(); run = (prev !== null && Math.round((t - prev) / DAY) === 1) ? run + 1 : 1; prev = t; best = Math.max(best, run); });
+  const last = keys.length ? new Date(keys[keys.length - 1] + 'T00:00:00') : null, t0 = new Date(); t0.setHours(0, 0, 0, 0);
+  return { keys, done, streak: done ? runAt(today) : runAt(yest), best, daysSince: last ? Math.round((t0 - last) / DAY) : null, prevRun: last ? runAt(last) : 0 };
+}
+function renderHabits() {
+  const c = $('habitList'), ts = todayStr(), vis = habits.filter(h => !h.hidden), hid = habits.filter(h => h.hidden);
+  $('hshowBtn').parentElement.classList.toggle('hidden', !hid.length);
+  $('hshowBtn').textContent = `非表示の習慣 (${hid.length})`;
+  const wd = [...Array(7)].map((_, i) => { const d = new Date(); d.setDate(d.getDate() - 6 + i); return d; });
+  const order = pinSort(vis);
+  let html = vis.length ? order.map(k => {
+    const h = vis[k], f = habitInfo(h);
+    let badge, cls, foot;
+    if (f.streak > 0) { badge = `${f.streak}日連続`; cls = 'badge-on'; foot = f.done ? `今日は完了。最長 ${f.best}日` : `今日やると ${f.streak + 1}日連続。最長 ${f.best}日`; }
+    else if (!f.keys.length) { badge = '未記録'; cls = 'badge-off'; foot = '今日から始めましょう'; }
+    else if (f.daysSince >= 14) { badge = '休止中'; cls = 'badge-off'; foot = `最後に記録したのは ${Math.floor(f.daysSince / 7)}週間前。最長 ${f.best}日`; }
+    else { badge = '途切れました'; cls = 'badge-off'; foot = `前回は ${f.prevRun}日続きました。今日からまた始められます。最長 ${f.best}日`; }
+    const dots = wd.map((d, i) => `<div class="flex flex-col items-center gap-0.5 text-[9px] text-gray-500"><span class="hdot ${h.history[dstr(d)] ? 'y' : ''} ${i === 6 ? 't' : ''}"></span>${weekDays[d.getDay()]}</div>`).join('');
+    return `<div class="${h.pinned ? 'bg-white/65' : 'bg-white/45'} rounded-lg p-2 flex flex-col gap-1.5 border border-black/5 text-[11px]">
+      <div class="flex justify-between items-center"><span class="font-semibold truncate">${esc(h.title)}</span><span class="text-[10px] px-1.5 rounded whitespace-nowrap ${cls}">${badge}</span></div>
+      <div class="flex justify-between px-1">${dots}</div>
+      <div class="text-[10px] text-gray-600 leading-snug">${foot}</div>
+      <div class="flex justify-between items-center">
+        <button data-act="htoggle" data-a="${h.id}" class="text-[10px] px-2 py-0.5 rounded border ${f.done ? 'bg-emerald-200 border-emerald-400 text-emerald-900 font-medium' : 'border-black/15 bg-white/75'}">${f.done ? '完了' : '今日やる'}</button>
+        <span class="flex gap-2">${pinBtn('hpin', h.id, h.pinned)}<button data-act="hhide" data-a="${h.id}" class="text-[10px] text-gray-500 hover:text-gray-800">非表示</button></span>
+      </div></div>`;
+  }).join('') : '<div class="text-[10px] text-gray-500 text-center py-4">表示中の習慣はありません</div>';
+  if (ui.showHidden) html += hid.map(h => `<div class="flex justify-between items-center bg-white/25 rounded-lg px-2 py-1 text-[10px] text-gray-500"><span class="truncate flex-1">${esc(h.title)}（非表示）</span><span class="flex gap-2"><button data-act="hrestore" data-a="${h.id}" class="hover:text-gray-800">戻す</button><button data-act="hpurge" data-a="${h.id}" class="hover:text-red-500">削除</button></span></div>`).join('');
+  c.innerHTML = html;
+  renderPins(); renderAcc();
+}
+const saveHabits = () => { save(HABIT_KEY, habits); renderHabits(); };
+function addHabit() {
+  const i = $('habitInput'), t = i.value.trim();
+  if (!t) return;
+  habits.push({ id: Date.now(), title: t, history: {} });
+  i.value = ''; saveHabits();
+}
+
+// ===== メモ（編集は画面内の入力欄で行う） =====
+const inCls = 'flex-1 min-w-0 text-[11px] bg-white/80 border border-black/20 rounded px-1 outline-none';
+const saveMemo = () => { save(MEMO_KEY, items); renderMemo(); };
+function renderMemo() {
+  const c = $('memoList');
+  if (!items.length) { c.innerHTML = '<div class="text-[10px] text-gray-500 text-center py-4">予定はありません</div>'; renderAcc(); return; }
+  let h = '';
+  pinSort(items).forEach(i => {
+    const p = items[i];
+    h += `<div class="flex items-center gap-1.5 bg-white/40 p-1 rounded text-[11px] ${p.completed ? 'line-through text-gray-500' : ''}">
+      <input type="checkbox" ${p.completed ? 'checked' : ''} data-act="ptoggle" data-a="${i}">
+      ${ui.edit === 'p' + i ? `<input data-commit="p${i}" value="${esc(p.text)}" class="${inCls}">`
+        : `<span class="flex-1 cursor-pointer truncate" data-edit="p${i}" title="ダブルクリックで編集">${esc(p.text)}</span>`}
+      ${pinBtn('ppin', i, p.pinned)}
+      <button data-act="pchild" data-a="${i}" class="text-gray-500 hover:text-black" aria-label="サブ予定を追加">＋</button>
+      <button data-act="pdel" data-a="${i}" class="text-gray-400 hover:text-red-500" aria-label="削除">×</button></div>`;
+    (p.children || []).forEach((cc, j) => {
+      h += `<div class="flex items-center gap-1.5 bg-white/25 ml-3 p-1 rounded text-[10px] border-l-2 border-black/20 ${cc.completed ? 'line-through text-gray-500' : ''}">
+        <input type="checkbox" ${cc.completed ? 'checked' : ''} data-act="ctoggle" data-a="${i}" data-b="${j}">
+        ${ui.edit === `c${i}-${j}` ? `<input data-commit="c${i}-${j}" value="${esc(cc.text)}" class="${inCls}">`
+          : `<span class="flex-1 cursor-pointer truncate" data-edit="c${i}-${j}" title="ダブルクリックで編集">${esc(cc.text)}</span>`}
+        <button data-act="cdel" data-a="${i}" data-b="${j}" class="text-gray-400 hover:text-red-500" aria-label="削除">×</button></div>`;
+    });
+    if (ui.edit === 'add' + i) h += `<div class="ml-3 flex"><input data-commit="add${i}" placeholder="サブ予定（Enterで追加）" class="${inCls}"></div>`;
+  });
+  c.innerHTML = h;
+  renderAcc();
+  const f = c.querySelector('[data-commit]');
+  if (f) { f.focus(); if (f.value) f.select(); }
+}
+function commitEdit(key, val) {
+  if (ui.edit === null) return;
+  ui.edit = null;
+  val = val.trim();
+  let m;
+  if (val && (m = key.match(/^p(\d+)$/))) items[+m[1]].text = val;
+  else if (val && (m = key.match(/^c(\d+)-(\d+)$/))) items[+m[1]].children[+m[2]].text = val;
+  else if (val && (m = key.match(/^add(\d+)$/))) { const p = items[+m[1]]; (p.children = p.children || []).push({ text: val, completed: false }); }
+  saveMemo();
+}
+function addParent() {
+  const i = $('itemInput'), t = i.value.trim();
+  if (!t) return;
+  items.push({ text: t, completed: false, children: [] });
+  i.value = ''; saveMemo();
+}
+function clearCompleted() {
+  items = items.filter(p => { if (p.children) p.children = p.children.filter(c => !c.completed); return !p.completed; });
+  saveMemo();
+}
+async function copyAllLogs() {
+  const ts = todayStr();
+  let t = `ダッシュボードログ [${ts}]\n\n【集中】\n`;
+  const l = log[ts] || { sec: 0, pomo: 0 };
+  t += `- ${Math.floor(l.sec / 60)}分 (25分達成 ${l.pomo}回)\n\n【カウントダウン】\n`;
+  countdowns.forEach(c => t += `- ${c.name} (${c.date})\n`);
+  t += `\n【習慣】\n`;
+  habits.forEach(h => t += `- ${h.history[ts] ? '[x]' : '[ ]'} ${h.title}\n`);
+  t += `\n【タスク】\n`;
+  items.forEach(p => {
+    t += `- ${p.completed ? '[x]' : '[ ]'} ${p.text}\n`;
+    (p.children || []).forEach(c => t += `  - ${c.completed ? '[x]' : '[ ]'} ${c.text}\n`);
+  });
+  toast(await copyText(t) ? 'ログをコピーしました' : 'コピーできませんでした');
+}
+
+// ===== バックアップ =====
+async function backupOut() {
+  const json = JSON.stringify({ v: 1, countdowns, habits, items, log, fast });
+  $('bkText').value = json; $('bkText').select();
+  toast(await copyText(json) ? 'コピーしました。メモ帳などに保存してください' : '枠内のテキストを手動でコピーしてください');
+}
+function backupIn() {
+  try {
+    const d = JSON.parse($('bkText').value);
+    if (!d || d.v !== 1 || !Array.isArray(d.countdowns) || !Array.isArray(d.habits) || !Array.isArray(d.items) || typeof d.log !== 'object') throw 0;
+    countdowns = d.countdowns; habits = d.habits; items = d.items; log = d.log;
+    save(CD_KEY, countdowns); save(HABIT_KEY, habits); save(MEMO_KEY, items); save(LOG_KEY, log);
+    if (d.fast && typeof d.fast === 'object' && Array.isArray(d.fast.log)) { fast = d.fast; save(FAST_KEY, fast); }
+    renderCountdowns(); renderHabits(); renderMemo(); renderStats(); renderFast(); refresh();
+    toast('復元しました');
+  } catch (e) { toast('復元できません。書き出したJSONを貼り付けてください'); }
+}
+
+// ===== 断食タイマー =====
+const FAST_KEY = 'notion_dashboard_fast_v1';
+let fast = load(FAST_KEY, { goalH: 16, startedAt: null, notified: false, log: [] });
+const fmtHM = ms => { const m = Math.floor(Math.max(0, ms) / 60000); return `${Math.floor(m / 60)}:${pad(m % 60)}`; };
+const fmtDT = ms => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+function fastTick() {
+  if (fast.startedAt && !fast.notified && Date.now() - fast.startedAt >= fast.goalH * 3600000) {
+    fast.notified = true; save(FAST_KEY, fast); playChime(); notify(`断食 ${fast.goalH}時間に到達`);
+  }
+}
+function renderFast() {
+  const goalMs = fast.goalH * 3600000, run = !!fast.startedAt, el = run ? Date.now() - fast.startedAt : 0;
+  $('fastBarText').textContent = !run ? '未開始（押して設定）' : (el >= goalMs ? `${fmtHM(el)}　目標達成 +${fmtHM(el - goalMs)}` : `${fmtHM(el)} / ${fast.goalH}時間　あと ${fmtHM(goalMs - el)}`);
+  $('fastBarFill').style.width = Math.min(100, el / goalMs * 100) + '%';
+  $('fastPanel').classList.toggle('hidden', !ui.fastOpen);
+  if (!ui.fastOpen) return;
+  if ($('fastGoal').value !== String(fast.goalH)) $('fastGoal').value = String(fast.goalH);
+  $('fastInfo').textContent = run ? `開始 ${fmtDT(fast.startedAt)} / 目標到達 ${fmtDT(fast.startedAt + goalMs)}` : '食事を終えたら始めましょう';
+  $('fastBtn').textContent = run ? '断食を終える' : '断食を始める';
+  $('fastSetBtn').classList.toggle('hidden', !run);
+  const wk = fast.log.filter(r => r.ok && Date.now() - r.end < 7 * DAY).length;
+  $('fastHistory').innerHTML = fast.log.length
+    ? `<div class="font-semibold text-gray-700">直近7日の達成 ${wk}回</div>` + fast.log.slice(0, 7).map(r => `<div class="flex justify-between"><span>${fmtDT(r.start)} から</span><span>${fmtHM(r.end - r.start)}（${r.goalH}時間 ${r.ok ? '達成' : '途中'}）</span></div>`).join('')
+    : '';
+}
+$('fastGoal').addEventListener('change', e => {
+  fast.goalH = +e.target.value;
+  fast.notified = fast.startedAt ? Date.now() - fast.startedAt >= fast.goalH * 3600000 : false;
+  save(FAST_KEY, fast); renderFast();
+});
+function fastStartAt() {
+  const v = $('fastStartAt').value;
+  if (!v) return Date.now();
+  const t = new Date(v).getTime();
+  return (isNaN(t) || t > Date.now()) ? null : t;
+}
+
+// ===== 元に戻す（確認ダイアログの代わり） =====
+const stores = {
+  countdowns: [() => countdowns, v => countdowns = v, CD_KEY], habits: [() => habits, v => habits = v, HABIT_KEY],
+  items: [() => items, v => items = v, MEMO_KEY], log: [() => log, v => log = v, LOG_KEY],
+  fast: [() => fast, v => fast = v, FAST_KEY]
+};
+let undoSnap = null, undoTimer = null;
+function hideUndo() { $('undoBar').classList.add('hidden'); undoSnap = null; clearTimeout(undoTimer); }
+function withUndo(msg, keys, fn) {
+  undoSnap = keys.map(k => [k, JSON.stringify(stores[k][0]())]);
+  fn();
+  $('undoMsg').textContent = msg; $('undoBar').classList.remove('hidden');
+  clearTimeout(undoTimer); undoTimer = setTimeout(hideUndo, 7000);
+}
+function undo() {
+  if (!undoSnap) return;
+  undoSnap.forEach(([k, j]) => { stores[k][1](JSON.parse(j)); save(stores[k][2], stores[k][0]()); });
+  renderCountdowns(); renderHabits(); renderMemo(); renderStats(); renderFast(); refresh();
+  hideUndo(); toast('元に戻しました');
+}
+function clearExpired() {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const exp = c => c.type === 'left' && new Date(c.date + 'T00:00:00') < today, n = countdowns.filter(exp).length;
+  if (!n) return toast('期限切れの目標はありません');
+  withUndo(`期限切れの目標を${n}件削除しました`, ['countdowns'], () => { countdowns = countdowns.filter(c => !exp(c)); save(CD_KEY, countdowns); renderCountdowns(); });
+}
+
+// ===== 操作の受け口（インラインonclickは使わない） =====
+const actions = {
+  tab: a => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+    $('tab-' + a).classList.add('active'); $('content-' + a).classList.remove('hidden');
+  },
+  rec: () => { document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden')); $('content-rec').classList.remove('hidden'); renderStats(); },
+  recback: () => actions.tab('timer'),
+  primary, back: backToWork, reset: resetTimer,
+  break: a => startBreak(+a),
+  sound: () => { soundEnabled = !soundEnabled; $('soundBtn').textContent = `効果音: ${soundEnabled ? 'ON' : 'OFF'}`; },
+  notifyToggle: toggleNotify,
+  theme: () => { themePref = isDark ? 'light' : 'dark'; save(THEME_KEY, themePref); applyTheme(); },
+  addHabit,
+  htoggle: a => { const h = habits.find(x => x.id === +a), ts = todayStr(); if (!h) return; if (h.history[ts]) delete h.history[ts]; else h.history[ts] = true; saveHabits(); },
+  hhide: a => withUndo('習慣を非表示にしました', ['habits'], () => { const h = habits.find(x => x.id === +a); if (h) h.hidden = true; saveHabits(); }),
+  hrestore: a => { const h = habits.find(x => x.id === +a); if (h) h.hidden = false; saveHabits(); },
+  hpurge: a => withUndo('習慣を削除しました', ['habits'], () => { habits = habits.filter(x => x.id !== +a); saveHabits(); }),
+  hshow: () => { ui.showHidden = !ui.showHidden; renderHabits(); },
+  addParent,
+  ptoggle: a => { items[a].completed = !items[a].completed; saveMemo(); },
+  pdel: a => withUndo('メモを削除しました', ['items'], () => { items.splice(a, 1); saveMemo(); }),
+  pchild: a => { ui.edit = 'add' + a; renderMemo(); },
+  ctoggle: (a, b) => { const c = items[a].children[b]; c.completed = !c.completed; saveMemo(); },
+  cdel: (a, b) => withUndo('サブ予定を削除しました', ['items'], () => { items[a].children.splice(b, 1); saveMemo(); }),
+  clearDone: () => withUndo('完了した項目を削除しました', ['items'], clearCompleted),
+  clearAll: () => { if (!items.length) return toast('削除するメモがありません'); withUndo('メモをすべて削除しました', ['items'], () => { items = []; saveMemo(); }); },
+  clearExpired, undo, copylog: copyAllLogs,
+  resetLog: () => withUndo('記録をリセットしました', ['log'], () => { log = {}; save(LOG_KEY, log); renderStats(); refresh(); }),
+  bkp: () => $('bkPanel').classList.toggle('hidden'), bkout: backupOut, bkin: backupIn,
+  acc: a => { ui.acc = ui.acc === a ? null : a; save(UI_KEY, { acc: ui.acc }); renderAcc(); },
+  fastToggle: () => { ui.fastOpen = !ui.fastOpen; renderFast(); },
+  hpin: a => { const h = habits.find(x => x.id === +a); if (h) h.pinned = !h.pinned; saveHabits(); },
+  ppin: a => { items[a].pinned = !items[a].pinned; saveMemo(); },
+  cdpin: a => { countdowns[a].pinned = !countdowns[a].pinned; save(CD_KEY, countdowns); renderCountdowns(); },
+  fastStart: () => {
+    ensureAudio();
+    if (fast.startedAt) {
+      const now = Date.now(), dur = now - fast.startedAt;
+      withUndo('断食を終了しました', ['fast'], () => {
+        fast.log.unshift({ start: fast.startedAt, end: now, goalH: fast.goalH, ok: dur >= fast.goalH * 3600000 });
+        fast.log = fast.log.slice(0, 60); fast.startedAt = null; fast.notified = false; save(FAST_KEY, fast); renderFast();
+      });
+    } else {
+      const t = fastStartAt();
+      if (t === null) return toast('開始時刻は現在より前にしてください');
+      fast.startedAt = t; fast.notified = Date.now() - t >= fast.goalH * 3600000;
+      $('fastStartAt').value = ''; save(FAST_KEY, fast); renderFast();
+    }
+  },
+  fastSet: () => {
+    if (!$('fastStartAt').value) return toast('変更する開始時刻を入力してください');
+    const t = fastStartAt();
+    if (t === null) return toast('開始時刻は現在より前にしてください');
+    fast.startedAt = t; fast.notified = Date.now() - t >= fast.goalH * 3600000;
+    $('fastStartAt').value = ''; save(FAST_KEY, fast); renderFast();
+  },
+  mprev: () => { monthOff--; renderStats(); },
+  mnext: () => { if (monthOff < 0) { monthOff++; renderStats(); } },
+  hform: () => $('countdownForm').classList.toggle('hidden'),
+  cdadd: () => {
+    const name = $('cdName').value.trim(), date = $('cdDate').value, type = $('cdType').value;
+    if (!name || !date) return toast('名称と日付を入力してください');
+    countdowns.push({ name, date, type }); save(CD_KEY, countdowns);
+    $('cdName').value = ''; $('cdDate').value = ''; $('countdownForm').classList.add('hidden');
+    renderCountdowns();
+  },
+  cddel: a => withUndo('目標を削除しました', ['countdowns'], () => { countdowns.splice(a, 1); save(CD_KEY, countdowns); renderCountdowns(); })
+};
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const fn = actions[el.dataset.act];
+  if (fn) fn(el.dataset.a, el.dataset.b);
+  if (el.tagName === 'BUTTON') el.blur();   // スペースキーで二重に押されないように
+});
+document.addEventListener('dblclick', e => {
+  const el = e.target.closest('[data-edit]');
+  if (el) { ui.edit = el.dataset.edit; renderMemo(); }
+});
+document.addEventListener('keydown', e => {
+  const t = e.target, typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName);
+  if (typing) {
+    const composing = e.isComposing || e.keyCode === 229;   // 日本語変換中は無視
+    if (e.key === 'Enter' && !composing) {
+      if (t.dataset.enter) { ({ addHabit, addParent })[t.dataset.enter](); }
+      else if (t.dataset.commit) commitEdit(t.dataset.commit, t.value);
+    } else if (e.key === 'Escape' && t.dataset.commit) { ui.edit = null; renderMemo(); }
+    return;
+  }
+  if (e.code === 'Space') { e.preventDefault(); primary(); }
+});
+document.addEventListener('focusout', e => {
+  if (e.target.dataset && e.target.dataset.commit) commitEdit(e.target.dataset.commit, e.target.value);
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden) commitLog(true); else { clearInterval(titleTimer); document.title = baseTitle; tick(); if (pendingStar) { pendingStar = false; shootStar(); } } });
+window.addEventListener('pagehide', () => commitLog(true));
+
+// ===== 起動 =====
+updateClock(); setInterval(updateClock, 1000);
+applyTheme(); renderAcc(); updateNotifyBtn(); renderStats(); renderCountdowns(); renderHabits(); renderMemo(); renderStatus();
+refresh(); drawWave();
+setInterval(tick, 250);
+</script>
+</body>
+</html>
